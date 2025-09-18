@@ -1,6 +1,7 @@
 const express = require('express');
 require('dotenv').config();
 const app = express();
+var jwt = require('jsonwebtoken');
 const cors = require('cors');
 const port = process.env.PORT || 5000;
 
@@ -23,13 +24,41 @@ const client = new MongoClient(uri, {
 
 async function run() {
     try {
-        // Connect the client to the server	(optional starting in v4.7)
-        // await client.connect();
-
         const userCollection = client.db("bistro-boss-update").collection('users');
         const menuCollection = client.db("bistro-boss-update").collection('menuItem');
         const reviewCollection = client.db("bistro-boss-update").collection('reviewItem');
         const cartCollection = client.db("bistro-boss-update").collection('cartItem');
+       
+       
+        // jwt related apis 
+        app.post('/jwt', async (req, res) => {
+            const user = req.body;
+            const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECURE, { expiresIn: '1h' });
+            res.send({ token });
+        })
+
+        // middleware  
+        const verifyToken = (req, res, next) => {
+            console.log('inside verify token', req.headers.authorization);
+            if (!req.headers.authorization) {
+                return res.status(401).send({ message: 'Forbiden Access' });
+            }
+
+            const token = req.headers.authorization.split(' ')[1];
+            jwt.verify(token, process.env.ACCESS_TOKEN_SECURE, (error, decoded) => {
+                if (error) {
+                    return res.status(401).send({ message: 'Forbiden Access' });
+                }
+                req.decoded = decoded;
+                next();
+            })
+        }
+
+        // user related apis 
+        app.get('/users', verifyToken, async (req, res) => {
+            const result = await userCollection.find().toArray();
+            res.send(result);
+        })
 
         app.post('/users', async (req, res) => {
             const user = req.body;
@@ -42,6 +71,27 @@ async function run() {
             res.send(result);
         })
 
+        app.delete('/users/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) };
+            const result = await userCollection.deleteOne(query);
+            res.send(result);
+        })
+
+        // make admin api 
+        app.patch('/users/admin/:id', async (req, res) => {
+            const id = req.params.id;
+            const filter = { _id: new ObjectId(id) };
+            const updatedDoc = {
+                $set: {
+                    role: 'admin'
+                }
+            }
+            const result = await userCollection.updateOne(filter, updatedDoc);
+            res.send(result);
+        })
+
+        // menu related apis 
         app.get('/menu', async (req, res) => {
             const result = await menuCollection.find().toArray();
             res.send(result);
@@ -52,6 +102,7 @@ async function run() {
             res.send(result);
         })
 
+        // cart related apis 
         app.get('/cart', async (req, res) => {
             const email = req.query.email;
             const query = { email: email }
